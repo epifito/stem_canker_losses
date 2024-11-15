@@ -1,0 +1,239 @@
+---
+title: "Sample size"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(Superpower)
+# https://cran.r-project.org/web/packages/Superpower/vignettes/intro_to_superpower.html
+```
+
+```{r}
+df <- full %>% 
+  filter(ensayo=="1") %>% 
+  filter(enfermedad=="CT") %>% 
+  select(rep, sintoma, severidad, nudo_cancro, peso_capit, aceite_bs) %>% 
+  pivot_wider(names_from=sintoma, values_from = c("peso_capit", "aceite_bs")) %>% 
+  mutate(
+    dif_peso=peso_capit_si-peso_capit_no, 
+    ratio_peso=round(peso_capit_si/peso_capit_no,2),
+    dif_aceite=aceite_bs_si-aceite_bs_no, 
+    ratio_aceite=round(aceite_bs_si/aceite_bs_no,3)
+    ) |> 
+  group_by(severidad) |> 
+  mutate(rep = row_number()) |> 
+  ungroup() |> 
+  arrange(severidad) |> 
+  select(severidad, rep, matches("dif|ratio")) # |> datapasta::df_paste()->df
+df
+```
+
+
+```{r}
+full %>% 
+  filter(ensayo=="1") %>% 
+  filter(enfermedad=="CT") %>% 
+  group_by(severidad, sintoma) |>
+  summarize(across(c(peso_capit, aceite_bs), 
+                   list(n = ~sum(!is.na(.)),
+                        avg = ~mean(., na.rm = T),
+                        sd = ~sd(., na.rm = T)
+                   ),
+                   .names = "{.fn}_{.col}")) 
+
+  
+```
+
+### peso power 
+
+```{r}
+# Baja sev
+pooled_sd_low_peso <- sqrt(((37 - 1) * 19.6^2 + (37 - 1) * 15^2) / (37 + 37 - 2))
+design_result_baja <- ANOVA_design(design = "2b",
+                              n = 37, 
+                              mu = c(85, 68), 
+                              sd = pooled_sd_low_peso, 
+                              label_list = list("condition" = c("sano", "CT")),
+                              plot = TRUE)
+power_low_peso <- ANOVA_exact(design_result_baja,verbose = FALSE)$main_results$power
+lb_peso_low <- paste(round(power_low_peso, 2))
+p_low <- plot_power(design_result_baja, min_n = 10, max_n = 50) 
+```
+
+```{r}
+# Alta sev
+pooled_sd_mod_peso <- sqrt(((12 - 1) * 23^2 + (12 - 1) * 11.6^2) / (12 + 12 - 2))
+
+design_result_mod <- ANOVA_design(design = "2b",
+                              n = 12, 
+                              mu = c(82.2, 52.5), 
+                              sd = pooled_sd_mod_peso, 
+                              label_list = list("condition" = c("sano", "CT")),
+                              plot = TRUE)
+power_mod_peso <- ANOVA_exact(design_result_mod, verbose = FALSE)$main_results$power
+lb_peso_mod <- paste(round(power_mod_peso, 2))
+p_mod <-plot_power(design_result_mod, min_n = 10, max_n = 50)  
+```
+
+```{r}
+p_low$power_df |>
+  bind_rows(p_mod$power_df, .id = "sev") |> 
+  ggplot() + 
+  aes(n, condition, col=sev) + 
+  geom_line(size=1.1) + 
+  geom_hline(yintercept = 80, alpha= .2) + 
+  geom_vline(xintercept = c(37), linetype = "dotted") + 
+  geom_vline(xintercept = c(12), linetype = "dotted") + 
+  scale_color_manual(labels = c("Baja", "Moderada"), values = c("blue", "red")) +
+  labs(x = "Tamaño de muestra", y = expression("Potencia =" ~ 1 - beta), color = "Severidad CT") +
+  lims(y=c(0,100)) +
+  geom_text(x = 37, y = power_low_peso, 
+            label = lb_peso_low, col="blue",
+            hjust = 1, vjust = -1) +
+  geom_text(x = 12, y = power_mod_peso, 
+            label = lb_peso_mod,col="red",
+            hjust = 1, vjust = -1) 
+```
+
+### aceite power 
+
+```{r}
+# Baja sev
+design_result_baja_ac <- ANOVA_design(design = "2b",
+                              n = 37, 
+                              mu = c(85, 68), 
+                              sd = 17, 
+                              label_list = list("condition" = c("sano", "CT")),
+                              plot = TRUE)
+power_low_ac <- ANOVA_exact(design_result_baja_ac,verbose = FALSE)$main_results$power
+p_low_ac <- plot_power(design_result_baja_ac, min_n = 10, max_n = 50) 
+```
+
+```{r}
+# Alta sev
+design_result_mod_ac <- ANOVA_design(design = "2b",
+                              n = 12, 
+                              mu = c(82.2, 52.5), 
+                              sd = 15, 
+                              label_list = list("condition" = c("sano", "CT")),
+                              plot = TRUE)
+power_mod_ac <- ANOVA_exact(design_result_mod_ac,verbose = FALSE)$main_results$power
+p_mod <-plot_power(design_result_mod_ac, min_n = 10, max_n = 50)  
+```
+
+```{r}
+power_low_ac$power_df |>
+  bind_rows(power_mod_ac$power_df, .id = "sev") |> 
+  ggplot() + 
+  aes(n, condition, col=sev) + geom_line() + 
+  geom_hline(yintercept = 80, linetype = "dotted") + 
+  geom_vline(xintercept = c(37,12), linetype = "dotted") + 
+  scale_color_manual(labels = c("Baja", "Moderada"), values = c("blue", "red")) +
+  lims(y=c(0,100))
+```
+
+---- hasta aca---- 
+
+```{r}
+library(effsize)
+
+#define plant growth values for each group
+group1 <- c(8, 9, 11, 11, 12, 14, 15, 16, 16, 18, 20, 21)
+group2 <- c(7, 9, 10, 10, 11, 11, 12, 14, 14, 16, 20, 23)
+
+#calculate Cohen's d
+cohen.d(group1, group2)
+```
+
+
+
+
+
+
+```{r}
+df %>%
+  summarize(across(c(dif_peso, dif_aceite),
+                   list(avg = ~mean(., na.rm = T)),
+                   .names = "{.fn}_{.col}")) %>%
+  bind_rows(
+  df |> 
+  group_by(severidad) |>
+  summarize(across(c(dif_peso, dif_aceite),
+                   list(avg = ~mean(., na.rm = T)),
+                   .names = "{.fn}_{.col}")))
+```
+
+
+```{r}
+#overall
+pwrss.t.2means(mu1 = -20.4, paired = TRUE, paired.r = 0.50,
+               power = .80, alpha = 0.05, 
+               alternative = "not equal")
+
+#baja
+pwrss.t.2means(mu1 = -17.4, paired = TRUE, paired.r = 0.50,
+               power = .80, alpha = 0.05, 
+               alternative = "not equal")
+
+# moderada
+pwrss.t.2means(mu1 = -29.68, paired = TRUE, paired.r = 0.50,
+               power = .80, alpha = 0.05, 
+               alternative = "not equal")
+
+```
+
+### peso capitulo
+
+```{r}
+# Perform power test for each group
+df %>%
+  group_by(severidad) %>%
+  summarise(
+    mean_ratio = mean(ratio_peso),
+    sd_ratio = sd(ratio_peso),
+    n = n(),
+    effect_size = abs(mean_ratio - 1) / sd_ratio,  # Cohen's d (difference from 1)
+    power_test = list(
+      pwr.t.test(
+        d = effect_size,
+        power = 0.8,  # Desired power
+        sig.level = 0.05,  # Significance level
+        type = "one.sample"
+      )
+    )
+  ) %>%
+  mutate(
+    required_sample_size = map_dbl(power_test, ~ .x$n)
+  ) |> 
+  select(-power_test)
+```
+
+### aceite
+
+```{r}
+# Perform power test for each group
+df %>%
+  drop_na(ratio_aceite) |> 
+  group_by(severidad) %>%
+  summarise(
+    mean_ratio = mean(ratio_aceite),
+    sd_ratio = sd(ratio_aceite),
+    n = n(),
+    effect_size = abs(mean_ratio - 1) / sd_ratio,  # Cohen's d (difference from 1)
+    power_test = list(
+      pwr.t.test(
+        d = effect_size,
+        power = 0.8,  # Desired power
+        sig.level = 0.05,  # Significance level
+        type = "one.sample"
+      )
+    )
+  ) %>%
+  mutate(
+    required_sample_size = map_dbl(power_test, ~ .x$n)
+  ) |> 
+  select(-power_test)
+```

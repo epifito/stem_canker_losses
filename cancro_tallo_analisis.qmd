@@ -1,0 +1,392 @@
+---
+title: "Pérdidas de girasol debido al Cancro del tallo"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+pacman::p_load(tidyverse, rio, emmeans, multcomp, performance, flextable, broom)
+conflicted::conflict_prefer("filter", "dplyr")
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflicts_prefer(tidyr::expand)
+# devtools::install_github("thomasp85/ggforce")
+# devtools::source_url("https://bit.ly/2P0pDB8")#rinde_aj
+# crono <- import("data/winter_cereals_23.xlsx", sheet="crono") 
+theme_set(cowplot::theme_half_open(font_size =  16))
+```
+
+```{r}
+full <- rio::import("survey_data.xlsx")
+```
+
+```{r}
+CT <- full %>% 
+  filter(enfermedad=="CT") %>% 
+  select(ensayo, rep, sub_sample, sintoma, severidad, nudo_cancro, peso_capit) %>% 
+  pivot_wider(names_from=sintoma, values_from = peso_capit) %>% 
+  data.frame %>% 
+  mutate(ratio=si/no) %>% 
+  mutate(pos_cancro=if_else(nudo_cancro %in% c(2,3), "inferior", "superior"))
+```
+
+## Peso de granos
+
+A continuación se analizará la variable peso de granos por capitulo (PGC) individual en base seca.  
+
+
+```{r}
+CT %>%
+  rename(sana=no, enferma=si) %>% 
+  pivot_longer(cols=sana:enferma) %>% 
+  ggplot() + 
+  aes(value) + 
+  geom_histogram(alpha=.5) + 
+  facet_grid(name~ensayo) + 
+  # scale_fill_manual(values=c("brown1", "green3"))+
+  scale_x_continuous(sec.axis=sec_axis(~.,name="Ensayo", breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  scale_y_continuous(sec.axis=sec_axis(~.,name="Status planta", breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  labs(x="Peso de granos por capítulo", 
+       fill="Severidad CTG", 
+       y="Frecuencia de casos") + 
+  ggstance::geom_boxploth(aes(y=1)) + 
+  theme(legend.position="bottom")
+```
+
+
+```{r}
+CT %>% 
+  ggplot() + 
+  aes(ratio) + 
+  # geom_density(alpha=.2) + 
+  geom_histogram(alpha=.5) + 
+  facet_grid(severidad~ensayo) + 
+  geom_vline(xintercept = 1, alpha=.5)+
+  scale_x_continuous(sec.axis=sec_axis(~.,name="Ensayo", breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  scale_y_continuous(sec.axis=sec_axis(~.,name="Severidad de CTG",
+                                       breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  labs(x="Cociente de peso de granos por capítulo: pl enferma / pl sana", 
+       fill="Severidad CTG", 
+       y="Frecuencia de casos") + 
+  ggstance::geom_boxploth(aes(y=.2), width=.3) + 
+  theme(legend.position="bottom")
+```
+
+### Efecto de la severidad de cancro
+
+```{r}
+m1 <- lmerTest::lmer(log(ratio) ~ severidad + (1|ensayo), CT)
+
+anova(m1) %>% 
+  broom::tidy() %>% 
+  flextable() %>% 
+  theme_vanilla() 
+
+check_homogeneity(m1)
+check_normality(m1)
+
+emmeans(m1, ~ severidad, type="response") %>% 
+  cld(Letters=letters) %>% 
+  mutate(reduccion = round((1-response)*100, 1)) %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+> Hay efectos de la severidad del cancro sobre el PGC
+
+
+### Posicion del cancro
+
+* Inferior: 2-3 nudo
+* Superior: 4-5 nudo 
+
+```{r}
+CT1 <- CT %>% filter(ensayo==1) 
+
+m2 <- lm(log(ratio) ~ severidad * pos_cancro, CT1)
+
+anova(m2) %>% 
+  broom::tidy() %>% 
+  flextable() %>% 
+  theme_vanilla() 
+
+check_homogeneity(m2)
+check_normality(m2)
+
+emmeans(m2, ~ pos_cancro, type="response") %>% 
+  cld(Letters=letters) %>% 
+  mutate(reduccion = round((1-response)*100, 3)) %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+> La mayor reduccion del rinde en aquellas plantas con cancros en los nudos inferiores (31,6% vs 24,4%) no llega a ser significativa
+
+## Aceite
+
+```{r}
+dat_aceite <- full %>% 
+  drop_na(aceite_bs) %>% 
+  select(-peso_capit, -pmg)
+
+dat_aceite_CT <- dat_aceite %>% 
+  filter(enfermedad=="CT") %>% 
+  pivot_wider(names_from=sintoma, values_from = aceite_bs) %>% 
+  mutate(ratio=si/no)
+
+dat_aceite_CT %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+
+```{r}
+dat_aceite_CT %>%
+  rename(sana=no, enferma=si) %>% 
+  pivot_longer(cols=sana:enferma) %>% 
+  ggplot() + 
+  aes(value) + 
+  geom_histogram(alpha=.5) + 
+  facet_grid(name~ensayo) + 
+  # scale_fill_manual(values=c("brown1", "green3"))+
+  scale_x_continuous(sec.axis=sec_axis(~.,name="Ensayo", breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  scale_y_continuous(sec.axis=sec_axis(~.,name="Status planta", breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  labs(x="% aceite", 
+       fill="Severidad CTG", 
+       y="Frecuencia de casos") + 
+  ggstance::geom_boxploth(aes(y=1)) + 
+  theme(legend.position="bottom")
+```
+
+
+```{r}
+dat_aceite_CT %>%
+  ggplot() + 
+  aes(ratio) + 
+  # geom_density(alpha=.2) + 
+  geom_histogram(alpha=.5) + 
+  facet_grid(severidad~ensayo) + 
+  geom_vline(xintercept = 1, alpha=.5)+
+  scale_x_continuous(sec.axis=sec_axis(~.,name="Ensayo", breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  scale_y_continuous(sec.axis=sec_axis(~.,name="Severidad de CTG",
+                                       breaks=NULL,labels=NULL), 
+                     breaks = scales::pretty_breaks(4)) + 
+  labs(x="Cociente de % aceite: pl enferma / pl sana", 
+       fill="Severidad CTG", 
+       y="Frecuencia de casos") + 
+  ggstance::geom_boxploth(aes(y=.2), width=.3) + 
+  theme(legend.position="bottom")
+```
+
+
+### Efecto de la severidad del cancro
+
+```{r}
+m3 <- lmerTest::lmer(log(ratio) ~ severidad + (1|ensayo), dat_aceite_CT)
+
+anova(m3) %>% 
+  broom::tidy() %>% 
+  flextable() %>% 
+  theme_vanilla() 
+
+check_homogeneity(m3)
+check_normality(m3)
+
+emmeans(m3, ~ severidad, type="response") %>% 
+  cld(Letters=letters, alpha=0.1) %>%
+  mutate(reduccion = round((1-response)*100, 3)) %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+### Posición cancro
+
+```{r}
+dat_aceite_CT_1 <- dat_aceite_CT %>% filter(ensayo==1) %>% 
+    mutate(pos_cancro=if_else(nudo_cancro %in% c(2,3), "inferior", "superior"))
+
+dat_aceite_CT_1 %>% count(pos_cancro)
+
+m4 <- lm(log(ratio) ~ severidad * pos_cancro, dat_aceite_CT_1)
+
+anova(m4) %>% 
+  broom::tidy() %>% 
+  flextable() %>% 
+  theme_vanilla() 
+
+check_homogeneity(m4)
+check_normality(m4)
+
+emmeans(m4, ~ pos_cancro, type="response") %>% 
+  cld(Letters=letters) %>% 
+  mutate(reduccion = round((1-response)*100, 1)) %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+> No hay diferencias a un 5%, 3% para ambas posiciones. Se define muy tarde el aceite ??
+
+## Simulación 
+
+```{r}
+simdat <- expand.grid(rto = seq(2000, 3000, by=500), 
+                      inc=seq(0,50, by=10), 
+                      severidad_cancro=c("baja", "moderada")) %>% 
+  mutate(coef_reduccion_peso=if_else(severidad_cancro=="baja", 0.817, 0.703)) %>% 
+  mutate(coef_reduccion_aceite=if_else(severidad_cancro=="baja", 0.946, 0.897)) %>% 
+  mutate(
+    rto_perd = rto * inc/100 * (1-coef_reduccion_peso), 
+    rto_final=rto-rto_perd
+  )  
+
+simdat %>% 
+  ggplot(aes(x=inc, y=rto_perd, col =factor(rto)))+
+  geom_line(size=1)+ 
+  facet_wrap("severidad_cancro") + 
+  labs(x = "Incidencia cancro (%)", 
+       y = "Pérdida peso granos (kg/ha)", 
+       col = "Rendimiento potencial (kg/ha)")+
+  scale_x_continuous(sec.axis=sec_axis(~.,name="Severidad CTG", breaks=NULL,labels=NULL)) +
+  scale_colour_grey() + 
+  theme(legend.position="bottom")
+
+# ggsave("~/Dropbox/5_Lineas_juan/Girasol/cancro/sim_resp.png",
+#        width = 7, height = 5)
+```
+
+```{r}
+sim_ac <- expand.grid(aceite = seq(40, 50, by=2), 
+                      severidad_cancro=c("baja", "moderada")) %>% 
+  mutate(coef_reduc_aceite=if_else(severidad_cancro=="baja", 0.946, 0.897),
+         perd_ac = aceite-(aceite*coef_reduc_aceite))  
+sim_ac
+
+sim_ac %>% 
+  ggplot(aes(x=aceite, y=perd_ac, col=severidad_cancro))+
+  geom_line(size=1)+ 
+  labs(x = "Contenido de aceite potencial (%)", 
+       y = "Reducción debido a CTG (%)", 
+       col = "Severidad CTG")+
+  scale_colour_grey() + 
+  theme(legend.position="bottom")
+
+```
+
+## CT vs PC
+
+```{r}
+full |> distinct(ensayo, enfermedad)
+
+full %>% 
+  select(-severidad, -nudo_cancro) |> 
+  filter(ensayo=="2") %>% 
+  select(enfermedad, rep, sub_sample, sintoma, peso_capit, aceite_bs) %>% 
+  # group_by(enfermedad, rep, sintoma) |>  
+  # reframe(peso_capit = mean(peso_capit)) |> 
+  pivot_wider(names_from=sintoma, values_from = c(peso_capit, aceite_bs)) %>% 
+  data.frame %>% 
+  mutate(peso_cap_ratio=peso_capit_si/peso_capit_no, 
+         aceite_ratio = aceite_bs_si/aceite_bs_no) -> CT_PC  
+
+CT_PC |> 
+  pivot_longer(contains("ratio")) |> 
+  ggplot() + 
+  facet_wrap("name", scales="free") +
+  aes(x=enfermedad, value) + 
+  geom_point()
+```
+
+```{r}
+m_enf_cap <- lm(log(peso_cap_ratio) ~ enfermedad + rep, CT_PC)
+
+anova(m_enf_cap) %>% 
+  broom::tidy() %>% 
+  flextable() %>% 
+  theme_vanilla() 
+
+check_homogeneity(m_enf_cap)
+check_normality(m_enf_cap)
+
+emmeans(m_enf_cap, ~ enfermedad, type="response") %>% 
+  cld(Letters=letters) %>% 
+  mutate(reduccion = round((1-response)*100, 1)) %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+
+```{r}
+CT_PC2 <- CT_PC |> drop_na(aceite_ratio)
+m_enf_aceite <- lm(log(aceite_ratio) ~ enfermedad + rep, CT_PC2)
+
+anova(m_enf_aceite) %>% 
+  broom::tidy() %>% 
+  flextable() %>% 
+  theme_vanilla() 
+
+# check_homogeneity(m_enf_aceite)
+check_normality(m_enf_aceite)
+
+emmeans(m_enf_aceite, ~ enfermedad, type="response") %>% 
+  cld(Letters=letters) %>% 
+  mutate(reduccion = round((1-response)*100, 1)) %>% 
+  flextable() %>% 
+  theme_vanilla() 
+```
+
+## Phoma 
+
+```{r}
+raw_dat <- tibble::tribble(
+  ~franja, ~trat, ~sintoma, ~enfermedad, ~rep, ~cap, ~peso_tot, ~peso_cap, ~pmg, ~aceite_bs, ~humedad,
+  "Fungicida",  "phoma_si",  "no",  "EN",    1,    3,    239,      79.7,   60,       51.9,      1.8,
+  "Fungicida",  "phoma_si",  "no",  "EN",    2,    3,    205,      68.3,   60,       49.5,      1.8,
+  "Fungicida",  "phoma_si",  "no",  "EN",    3,    4,    251,      62.8,   50,         50,      1.7,
+  
+  "Sin tratar", "phoma_no",  "si",  "EN",    1,    4,    277,      69.3,   60,       50.9,      1.8,
+  "Sin tratar", "phoma_no",  "si",  "EN",    2,    4,    280,        70,   50,       51.9,      1.7,
+  "Sin tratar", "phoma_no",  "si",  "EN",    3,    3,    267,        89,   50,       52.4,      1.8,
+  
+  "Fungicida",    "CT_si",   "si",  "CT",    1,    5,    333,      56.6,   42,       47.5,      2.3,
+  "Fungicida",    "CT_si",   "si",  "CT",    2,    5,    257,      51.4,   45,         47,      2.2,
+  "Fungicida",    "CT_si",   "si",  "CT",    3,    5,    265,        53,   40,       46.2,      2.1,
+  
+  "Fungicida",    "CT_no",   "no",  "CT",    1,    5,    348,      69.6,   50,       54.1,        2,
+  "Fungicida",    "CT_no",   "no",  "CT",    2,    5,    312,      62.4,   50,       54.5,      1.9,
+  "Fungicida",    "CT_no",   "no",  "CT",    3,    5,    337,      67.4,   60,         53,      1.9,
+  
+  
+  "Fungicida",    "PC_si",   "si", "PC",    1,    4,     357,      69.3,   50,       46.7,      2.1,
+  "Fungicida",    "PC_si",   "si", "PC",    2,    4,     333,      70.3,   53,       46.5,      2.2,
+  "Fungicida",    "PC_si",   "si", "PC",    3,    4,     272,      65.1,   55,         45,        2,
+  
+  "Fungicida",    "PC_no",   "no", "PC",    1,    4,     287,      70.1,   55,         52,      1.9,
+  "Fungicida",    "PC_no",   "no", "PC",    2,    4,     312,        68,   60,       52.2,      1.7,
+  "Fungicida",    "PC_no",   "no", "PC",    3,    4,     286,      73.5,   62,         51,      1.8
+  
+) %>% 
+    mutate_at(c("rep", "cap"), as.factor)
+```
+
+```{r}
+raw_dat |>  
+  filter(enfermedad=="EN") %>% 
+  select(enfermedad, rep,  sintoma, peso_cap, aceite_bs) %>%
+  # group_by(enfermedad, rep, sintoma) |>  
+  # reframe(peso_capit = mean(peso_capit)) |> 
+  pivot_wider(names_from=sintoma, values_from = c(peso_cap, aceite_bs)) %>% 
+  data.frame %>% 
+  mutate(peso_cap_ratio=peso_cap_si/peso_cap_no, 
+         aceite_ratio = aceite_bs_si/aceite_bs_no) -> phoma  
+
+```
+
+
